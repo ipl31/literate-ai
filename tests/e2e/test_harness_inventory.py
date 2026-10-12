@@ -4,9 +4,11 @@ harness wrapper, and detected flavors flow into ``litai init`` selector resoluti
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import shlex
+import shutil
 import stat
 import subprocess
 import sys
@@ -42,7 +44,8 @@ from literate_ai.adapters.retained_scope_refresh import (
     apply_retained_scope_refresh,
     plan_retained_scope_refresh,
 )
-from literate_ai.contracts import ProjectInitializationOrigin
+from literate_ai.cli import main
+from literate_ai.contracts import ProjectInitializationOrigin, RepositoryParentSelection
 from tests.support.root_parent_adapter import (
     RootParentProjectInitializationAdapter as FilesystemProjectInitializationAdapter,
 )
@@ -125,6 +128,110 @@ def _signed_selectors(target: Path) -> tuple[str, ...]:
         ),
         host_platform_selector(),
     )
+
+
+class DotnetHarnessJourneyTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("dotnet"), ".NET SDK is not installed")
+    def test_native_onboard_apply_and_retained_receipt_without_make(self):
+        sdks = subprocess.run(
+            ["dotnet", "--list-sdks"], check=True, capture_output=True, text=True
+        ).stdout.splitlines()
+        if not sdks:
+            self.skipTest("dotnet is present but no SDK is installed")
+        major = int(sdks[-1].split(".", 1)[0])
+        with tempfile.TemporaryDirectory(prefix="litai native dotnet ") as directory:
+            root = Path(directory) / "adopted"
+            project = root / "src" / "Tests Space.csproj"
+            project.parent.mkdir(parents=True)
+            sdk_version = sdks[-1].split()[0]
+            (project.parent / "global.json").write_text(
+                json.dumps({"sdk": {"version": sdk_version, "rollForward": "disable"}})
+            )
+            project.write_text(
+                '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup>'
+                f"<TargetFramework>net{major}.0</TargetFramework>"
+                "<IsTestProject>true</IsTestProject>"
+                "</PropertyGroup><ItemGroup>"
+                '<PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1"/>'
+                '<PackageReference Include="xunit" Version="2.9.2"/>'
+                '<PackageReference Include="xunit.runner.visualstudio" '
+                'Version="2.8.2"/>'
+                "</ItemGroup></Project>"
+            )
+            (project.parent / "Tests.cs").write_text(
+                "public class Tests { [Xunit.Fact] public void Passing()"
+                " { Xunit.Assert.Equal(4, 2 + 2); } }"
+            )
+
+            def invoke(*args):
+                output, errors = io.StringIO(), io.StringIO()
+                status = main(["--json", *args], stdout=output, stderr=errors)
+                self.assertEqual(status, 0, errors.getvalue())
+                return json.loads(output.getvalue())["result"]
+
+            # Parent selection is a remote authority boundary; the full local
+            # initialization, parity and receipt lifecycle runs without mocks.
+            with patch(
+                "literate_ai.adapters.project_initialization."
+                "_default_repository_parent",
+                return_value=RepositoryParentSelection.root(),
+            ):
+                plan = invoke("onboard", "adopt", str(root))
+                self.assertEqual(plan["conversion"]["readiness"], "ready")
+                self.assertTrue(plan["apply_supported"])
+                applied = invoke(
+                    "onboard",
+                    "adopt",
+                    str(root),
+                    "--apply",
+                    "--acknowledge",
+                    "--expect-plan",
+                    plan["plan_identity"],
+                )
+            self.assertTrue(applied["applied"])
+            self.assertTrue((root / "litai.harness.py").is_file())
+            self.assertFalse((root / "litai.harness.mk").exists())
+            parity = json.loads(
+                (root / ".literate/legacy-wrapper-parity.json").read_text()
+            )
+            self.assertEqual(parity["state"], "passed")
+            self.assertTrue(
+                all("make " not in phase["command"] for phase in parity["phases"])
+            )
+            candidate = Path(directory) / "candidate.json"
+            result = invoke(
+                "project",
+                "test-receipt",
+                "run-retained",
+                str(candidate),
+                "--project",
+                str(root),
+                "--worker-id",
+                "local",
+            )
+            self.assertEqual(result["tests"], 1)
+            self.assertEqual(result["classification"], "retained-legacy-parity")
+            invoke(
+                "project",
+                "test-receipt",
+                "update",
+                str(candidate),
+                "--project",
+                str(root),
+            )
+            invoke(
+                "project",
+                "convert-stage",
+                "advance",
+                "--to",
+                "retained",
+                "--project",
+                str(root),
+            )
+            status = invoke("status", "--project", str(root))
+            self.assertEqual(
+                status["project"]["conversion_authority"]["stage"], "retained"
+            )
 
 
 class ConvertHarnessSliceTests(unittest.TestCase):

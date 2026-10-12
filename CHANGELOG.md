@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Adoption: detect native .NET projects and solutions, retain evidence-backed
+  build/test commands through a portable Python wrapper, and show individual
+  onboarding blockers. Ambiguous entrypoints remain blocked; existing drivers
+  keep precedence.
+
 - Windows installation: report inaccessible declared native-tool search directories
   as actionable host-install errors instead of uncaught tracebacks. Document the
   PowerShell source-install entry point and activation-free wheel commands.

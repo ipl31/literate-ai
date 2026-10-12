@@ -22,6 +22,7 @@ from literate_ai.adapters.harness_inventory import (
     HarnessBaselineError,
     copy_retained_source_tree,
     execute_retained_harness,
+    harness_wrapper_filename,
     stages_covered_by_root,
     validate_harness_command_timeout,
 )
@@ -70,7 +71,6 @@ _INVENTORY_PATH = ".literate/harness-inventory.json"
 _BASELINE_PATH = ".literate/legacy-harness-baseline.json"
 _PARITY_PATH = ".literate/legacy-wrapper-parity.json"
 _LIFT_SHIFT_PATH = ".literate/legacy-lift-shift.json"
-_WRAPPER_PATH = "litai.harness.mk"
 _WRAPPER_COMPONENT_PATH = "components/legacy-project-wrapper"
 _MAX_EVIDENCE_DOCUMENT_BYTES = 16 * 1024 * 1024
 _BASE_EVIDENCE_KINDS = frozenset(
@@ -643,7 +643,7 @@ def _load_retained_documents(
             "retained harness inventory has an unsupported schema",
         )
     _inventory_phase_kinds(inventory)
-    wrapper = project.root / _WRAPPER_PATH
+    wrapper = project.root / harness_wrapper_filename(inventory)
     try:
         if wrapper.is_symlink() or not wrapper.is_file():
             raise OSError

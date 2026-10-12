@@ -323,7 +323,13 @@ def _filesystem_paths(
                 item == relative or item.startswith(f"{relative}/")
                 for item in protected_paths
             )
-            excluded_by_name = name in EXCLUDED_DIRECTORY_NAMES
+            excluded_by_name = name in EXCLUDED_DIRECTORY_NAMES or (
+                name.lower() in {"bin", "obj"}
+                and any(
+                    file.lower().endswith((".csproj", ".fsproj", ".vbproj"))
+                    for file in filenames
+                )
+            )
             excluded_by_root = _beneath_any(
                 relative, frozenset(effective_excluded_roots)
             )

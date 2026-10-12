@@ -14,6 +14,7 @@ from literate_ai.adapters.conversion_authority import (
     CONVERSION_AUTHORITY_FILE,
     FilesystemConversionAuthorityStore,
 )
+from literate_ai.adapters.harness_inventory import harness_wrapper_filename
 from literate_ai.adapters.harness_tree import (
     _validated_scope,
     capture_retained_source_scope,
@@ -41,7 +42,6 @@ _PRESERVED_METADATA = (
     ".literate/legacy-harness-baseline.json",
     ".literate/legacy-wrapper-parity.json",
     ".literate/legacy-lift-shift.json",
-    "litai.harness.mk",
 )
 
 
@@ -148,6 +148,7 @@ def plan_retained_scope_refresh(selected: Path) -> dict[str, Any]:
         ".literate/legacy-wrapper-parity.json",
         ".literate/legacy-lift-shift.json",
         "litai.harness.mk",
+        "litai.harness.py",
     ):
         _safe_path(root, relative)
     state = FilesystemConversionAuthorityStore(root).load_optional()
@@ -204,7 +205,7 @@ def plan_retained_scope_refresh(selected: Path) -> dict[str, Any]:
         },
         "preserved_metadata": {
             relative: _identity(_safe_path(root, relative).read_bytes())
-            for relative in _PRESERVED_METADATA
+            for relative in (*_PRESERVED_METADATA, harness_wrapper_filename(inventory))
         },
         "source_members": members,
         "added": sorted(set(new_paths) - set(old_paths)),

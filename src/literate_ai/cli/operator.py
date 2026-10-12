@@ -480,6 +480,13 @@ def human_onboard_text(result: dict[str, Any]) -> str:
     blockers = plan.get("blockers") or []
     if blockers:
         lines.append(f"Blockers: {len(blockers)}")
+        lines.extend(f"  - {blocker}" for blocker in blockers)
+        if "blocked-no-driver" in blockers:
+            lines.append("    No unambiguous supported build or test driver detected.")
+            conversion = plan.get("conversion") or {}
+            for finding in conversion.get("findings") or []:
+                if finding.get("detector_id") == "build-system.dotnet-ambiguous":
+                    lines.append(f"    {finding['detail']}")
     if not result.get("applied"):
         lines.append("Review this plan, then rerun with --apply --acknowledge.")
     for command in plan.get("next_commands") or []:

@@ -19,10 +19,10 @@ from literate_ai.adapters.harness_inventory import (
     HARNESS_BASELINE_SCHEMA,
     HARNESS_DIAGNOSTIC_CHARS,
     HARNESS_PARITY_SCHEMA,
-    HARNESS_WRAPPER_FILENAME,
     classify_ci,
     execute_harness_baseline,
     execute_harness_wrapper_parity,
+    harness_wrapper_filename,
     inspect_harness,
     legacy_shim_authority,
     render_harness_wrapper,
@@ -287,10 +287,11 @@ def plan_retained_harness_readmission(
     inventory_path = _safe_path(root, INVENTORY)
     baseline_path = _safe_path(root, BASELINE)
     parity_path = _safe_path(root, PARITY)
-    wrapper_path = _safe_path(root, HARNESS_WRAPPER_FILENAME)
     manifest_path = _safe_path(root, "literate.project.json")
     authority_path = _safe_path(root, CONVERSION_AUTHORITY_FILE)
     old_inventory = _load_json(inventory_path)
+    wrapper_name = harness_wrapper_filename(old_inventory)
+    wrapper_path = _safe_path(root, wrapper_name)
     new_inventory = inspect_harness(implementation)
     new_inventory = _retain_admitted_stages(
         old_inventory,
@@ -298,6 +299,11 @@ def plan_retained_harness_readmission(
         retained_stage_ids,
         implementation=implementation,
     )
+    if harness_wrapper_filename(new_inventory) != wrapper_name:
+        _fail(
+            "wrapper_kind_changed",
+            "readmission cannot change between native and Make wrappers",
+        )
     if "workspace_links" in old_inventory:
         new_inventory["workspace_links"] = old_inventory["workspace_links"]
     if execution_worker is not None and new_inventory.get("workspace_links"):
@@ -335,7 +341,7 @@ def plan_retained_harness_readmission(
         INVENTORY: _identity(inventory_path.read_bytes()),
         BASELINE: _identity(baseline_path.read_bytes()),
         PARITY: _identity(parity_path.read_bytes()),
-        HARNESS_WRAPPER_FILENAME: _identity(wrapper_path.read_bytes()),
+        wrapper_name: _identity(wrapper_path.read_bytes()),
         "literate.project.json": _identity(manifest_path.read_bytes()),
         CONVERSION_AUTHORITY_FILE: _identity(authority_path.read_bytes()),
         LIFT_SHIFT: _identity(_safe_path(root, LIFT_SHIFT).read_bytes()),
@@ -471,6 +477,7 @@ def _baseline_report(
 
 
 def _parity_inventory(inventory: dict[str, Any], source_root: Path) -> dict[str, Any]:
+    wrapper_name = harness_wrapper_filename(inventory)
     stages = []
     for stage in inventory["stages"]:
         if stage["id"].split(".", 1)[0] not in {"build", "test", "package", "ci"}:
@@ -479,11 +486,12 @@ def _parity_inventory(inventory: dict[str, Any], source_root: Path) -> dict[str,
             {
                 **stage,
                 "command": (
-                    f"make -f {HARNESS_WRAPPER_FILENAME} {stage['id']} "
-                    "LITAI_LEGACY=legacy"
+                    f"python {wrapper_name} {stage['id']} legacy"
+                    if wrapper_name.endswith(".py")
+                    else f"make -f {wrapper_name} {stage['id']} LITAI_LEGACY=legacy"
                 ),
                 "cwd": ".",
-                "evidence": HARNESS_WRAPPER_FILENAME,
+                "evidence": wrapper_name,
             }
         )
     commands = {
@@ -515,7 +523,7 @@ def _parity_report(
     if worker is None:
         with tempfile.TemporaryDirectory(prefix="litai-readmit-wrapper-") as directory:
             project_root = Path(directory)
-            (project_root / HARNESS_WRAPPER_FILENAME).write_bytes(wrapper)
+            (project_root / harness_wrapper_filename(inventory)).write_bytes(wrapper)
             return execute_harness_wrapper_parity(
                 inventory,
                 baseline,
@@ -528,7 +536,7 @@ def _parity_report(
         source_root = Path(directory)
         legacy = source_root / "legacy"
         copy_retained_source_tree(implementation, legacy, inventory["source_scope"])
-        (source_root / HARNESS_WRAPPER_FILENAME).write_bytes(wrapper)
+        (source_root / harness_wrapper_filename(inventory)).write_bytes(wrapper)
         parity_inventory = _parity_inventory(inventory, source_root)
         observed = observe_retained_tree(source_root, parity_inventory["source_scope"])[
             "source_tree"
@@ -660,6 +668,7 @@ def apply_retained_harness_readmission(
         root = project.root
         implementation = root / plan["implementation"]
         inventory = plan["new_inventory"]
+        wrapper_name = harness_wrapper_filename(inventory)
         wrapper = render_harness_wrapper(
             inventory, legacy_directory=plan["implementation"]
         ).encode("utf-8")
@@ -692,7 +701,7 @@ def apply_retained_harness_readmission(
             INVENTORY: _safe_path(root, INVENTORY),
             BASELINE: _safe_path(root, BASELINE),
             PARITY: _safe_path(root, PARITY),
-            HARNESS_WRAPPER_FILENAME: _safe_path(root, HARNESS_WRAPPER_FILENAME),
+            wrapper_name: _safe_path(root, wrapper_name),
             "literate.project.json": _safe_path(root, "literate.project.json"),
             plan["authority_review"]: _safe_path(root, plan["authority_review"]),
         }
@@ -737,7 +746,7 @@ def apply_retained_harness_readmission(
                 INVENTORY: canonical_json_bytes(inventory) + b"\n",
                 BASELINE: canonical_json_bytes(baseline) + b"\n",
                 PARITY: canonical_json_bytes(parity) + b"\n",
-                HARNESS_WRAPPER_FILENAME: wrapper,
+                wrapper_name: wrapper,
                 **{
                     relative: content.encode("utf-8")
                     for relative, content in shim.items()

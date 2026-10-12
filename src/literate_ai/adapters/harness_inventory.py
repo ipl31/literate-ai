@@ -15,8 +15,10 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 from datetime import UTC, datetime
 from importlib.resources import files
@@ -26,6 +28,11 @@ from typing import BinaryIO
 from literate_ai.adapters._processes import (
     create_process_tree_ownership,
     terminate_process_tree,
+)
+from literate_ai.adapters.harness_dotnet import (
+    dotnet_argv,
+    inspect_dotnet,
+    render_dotnet_wrapper,
 )
 from literate_ai.adapters.harness_test_discovery import (
     discover_retained_test_command,
@@ -810,6 +817,17 @@ def _partition_execution_stages(
     return to_run, omitted
 
 
+def harness_wrapper_filename(inventory: dict[str, object]) -> str:
+    """Native .NET inventories use a portable Python wrapper; others retain Make."""
+
+    stages = _inventory_stages(inventory)
+    return (
+        "litai.harness.py"
+        if stages and all(dotnet_argv(stage["command"]) is not None for stage in stages)
+        else HARNESS_WRAPPER_FILENAME
+    )
+
+
 def _detect_build_system(
     root: Path,
 ) -> tuple[list[dict[str, str]], dict[str, object], list[dict[str, str]]]:
@@ -967,6 +985,11 @@ def _detect_build_system(
                 )
             )
 
+    dotnet_findings, dotnet_stages = inspect_dotnet(root)
+    findings.extend(dotnet_findings)
+    # Existing repository drivers keep their full precedence, including test authority.
+    if not stages:
+        stages.extend(dotnet_stages)
     return findings, _commands_from_stages(stages), stages
 
 
@@ -1268,6 +1291,18 @@ def _run_harness_command(
     # root instead of the outer checkout (issue #315).
     environment["CI_PROJECT_DIR"] = str(observed_root)
     environment["OMNI_REPO_ROOT"] = str(observed_root)
+    argv = entry.get("argv") or dotnet_argv(command)
+    if argv is not None and (
+        not isinstance(argv, list)
+        or not argv
+        or not all(isinstance(arg, str) for arg in argv)
+        or shlex.join(argv) != command
+    ):
+        raise HarnessBaselineError(
+            "project.convert_command_invalid",
+            "native argv does not match recorded command",
+            {"schema": HARNESS_BASELINE_SCHEMA, "state": "failed", "phases": []},
+        )
     started = datetime.now(UTC)
     with (
         tempfile.TemporaryFile() as stdout_file,
@@ -1277,10 +1312,10 @@ def _run_harness_command(
         ownership = create_process_tree_ownership()
         try:
             process = subprocess.Popen(
-                command,
+                argv if argv is not None else command,
                 cwd=working_directory,
                 env=environment,
-                shell=True,
+                shell=argv is None,
                 stdin=subprocess.DEVNULL,
                 stdout=stdout_file,
                 stderr=stderr_file,
@@ -1687,7 +1722,7 @@ def execute_harness_wrapper_parity(
                 workspace_links
             )
         return skipped
-    wrapper = project_root / HARNESS_WRAPPER_FILENAME
+    wrapper = project_root / harness_wrapper_filename(inventory)
     if not wrapper.is_file() or wrapper.is_symlink():
         raise HarnessBaselineError(
             "project.convert_wrapper_unavailable",
@@ -1742,6 +1777,13 @@ def execute_harness_wrapper_parity(
                     ),
                     "evidence": HARNESS_WRAPPER_FILENAME,
                 }
+                if wrapper.suffix == ".py":
+                    argv = [sys.executable, str(wrapper), phase, str(parity_root)]
+                    wrapper_entry = {
+                        "command": shlex.join(argv),
+                        "argv": argv,
+                        "evidence": wrapper.name,
+                    }
                 observed = _run_harness_command(
                     phase,
                     wrapper_entry,
@@ -1822,6 +1864,7 @@ def legacy_shim_authority(
     proven_list = ", ".join(f"`{phase}`" for phase in proven) or "none"
     unproven_list = ", ".join(f"`{phase}`" for phase in unproven) or "none"
     missing_list = ", ".join(f"`{phase}`" for phase in missing) or "none"
+    wrapper_name = harness_wrapper_filename(inventory)
     component = f"""---
 namespace: legacy-adoption
 version: 1.0.0
@@ -1847,14 +1890,14 @@ flavor_slots:
 entrypoints:
   - name: run
     kind: portable-application
-    path: litai.harness.mk
+    path: {wrapper_name}
 acceptance_contracts: []
 source_dependencies: []
 ---
 # Legacy Project Pipeline Wrapper
 
 This Component exposes the quarantined project's proven pipeline through the
-top-level `litai.harness.mk` boundary. Proven stages (direct baseline ran) are
+top-level `{wrapper_name}` boundary. Proven stages (direct baseline ran) are
 {proven_list}; recorded but not executed are {unproven_list}; missing stages are
 {missing_list} and fail loudly rather than becoming silent no-ops.
 
@@ -1867,7 +1910,7 @@ legacy-tree identity as the corresponding direct Phase 1 baseline stage recorded
 
 #### Scenario: Wrapper stage matches direct execution
 
-- **WHEN** a proven stage is invoked through `litai.harness.mk`
+- **WHEN** a proven stage is invoked through `{wrapper_name}`
 - **THEN** its exit status and resulting legacy-tree identity match the direct baseline
 """
     skill = """---
@@ -1984,12 +2027,22 @@ def render_harness_wrapper(
     legacy_directory: str,
     legacy_root: Path | None = None,
 ) -> str:
-    """Render the top-level literate-ai wrapper Makefile from inventory evidence."""
+    """Render the top-level Make or native Python wrapper from inventory evidence."""
 
     commands: dict[str, object] = inventory.get("commands", {})  # type: ignore[arg-type]
     if not isinstance(commands, dict):
         commands = {}
     stages = _inventory_stages(inventory)
+    if harness_wrapper_filename(inventory).endswith(".py"):
+        workspace_links = inventory.get("workspace_links")
+        return render_dotnet_wrapper(
+            stages,
+            legacy_directory,
+            projected_root_required=bool(
+                isinstance(workspace_links, dict)
+                and workspace_links.get("destinations")
+            ),
+        )
     stages_by_id = {stage["id"]: stage for stage in stages}
     lines = [
         "# Generated by litai init --convert from .literate/harness-inventory.json",
@@ -2099,8 +2152,8 @@ source-to-specification transfer has occurred.
 
 Move the complete original tree, preserving its internal taxonomy, from quarantine to
 `{implementation_directory}`. The wrapper Component owns this retained implementation
-and `litai.harness.mk` invokes it at its new location. Each move uses `git mv` when the
-entry is tracked and plain filesystem move otherwise.
+and the retained wrapper invokes it at its new location. Each move uses `git mv`
+when the entry is tracked and plain filesystem move otherwise.
 
 The move is admitted only when the post-move wrapper workflow has the same successful
 exit and source-authority tree identity as the Phase 1 direct baseline. Only then is
@@ -2330,13 +2383,19 @@ def lift_shift_legacy_project(
                     "vcs": mode,
                 }
             )
-        wrapper = project_root / HARNESS_WRAPPER_FILENAME
+        wrapper = project_root / harness_wrapper_filename(inventory)
         original_wrapper = wrapper.read_text(encoding="utf-8")
         implementation_relative = implementation.relative_to(project_root).as_posix()
         wrapper.write_text(
-            original_wrapper.replace(
-                f"LITAI_LEGACY := {directory}",
-                f"LITAI_LEGACY := {implementation_relative}",
+            (
+                render_harness_wrapper(
+                    inventory, legacy_directory=implementation_relative
+                )
+                if wrapper.suffix == ".py"
+                else original_wrapper.replace(
+                    f"LITAI_LEGACY := {directory}",
+                    f"LITAI_LEGACY := {implementation_relative}",
+                )
             ),
             encoding="utf-8",
             newline="\n",

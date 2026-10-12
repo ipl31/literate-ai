@@ -32,6 +32,11 @@ _CTEST_ALL_PASSED = re.compile(
     r"^\s*100% tests passed out of\s+(\d+)\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
+_DOTNET_OUTCOME = re.compile(
+    r"^\s*(?:Passed!|Failed!)\s*-\s*Failed:\s*(\d+),\s*"
+    r"Passed:\s*(\d+),\s*Skipped:\s*(\d+),\s*Total:\s*(\d+),",
+    re.MULTILINE,
+)
 _UNITTEST_TOTAL = re.compile(r"\bRan\s+(\d+)\s+tests?\b")
 _UNITTEST_FAILED = re.compile(r"\b(?:failures|errors)=(\d+)\b", re.IGNORECASE)
 _UNITTEST_SKIPPED = re.compile(r"\bskipped=(\d+)\b", re.IGNORECASE)
@@ -108,6 +113,15 @@ def observe_test_collection(phase: str, stdout: bytes, stderr: bytes) -> dict[st
         return _counted_observation(passed, 0, 0, 0)
     if any(pattern.search(text) for pattern in _ZERO_PATTERNS):
         return _test_observation("empty", total=0, passed=0, failed=0, skipped=0)
+
+    dotnet = tuple(_DOTNET_OUTCOME.finditer(text))
+    if dotnet:
+        failed, passed, skipped, total = (
+            sum(int(match.group(index)) for match in dotnet) for index in range(1, 5)
+        )
+        if passed + failed + skipped == total:
+            return _counted_observation(passed, failed, skipped, 0)
+        return _test_observation("unreported")
 
     cargo = tuple(_CARGO_OUTCOME.finditer(text))
     if cargo:

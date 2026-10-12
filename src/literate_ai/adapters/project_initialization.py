@@ -2966,11 +2966,11 @@ class FilesystemProjectInitializationAdapter:
             # Inspect the quarantined legacy tree and generate the top-level
             # literate-ai wrapper before any other scaffold evidence is recorded.
             from literate_ai.adapters.harness_inventory import (
-                HARNESS_WRAPPER_FILENAME,
                 HarnessBaselineError,
                 copy_retained_source_tree,
                 execute_harness_baseline,
                 execute_harness_wrapper_parity,
+                harness_wrapper_filename,
                 inspect_harness,
                 legacy_shim_authority,
                 lift_shift_legacy_project,
@@ -3055,9 +3055,11 @@ class FilesystemProjectInitializationAdapter:
                     legacy_directory=str(quarantine["directory"]),
                     legacy_root=resolved_target / str(quarantine["directory"]),
                 )
-                wrapper_path = resolved_target / HARNESS_WRAPPER_FILENAME
+                harness_wrapper_path = harness_wrapper_filename(
+                    harness_inventory_document
+                )
+                wrapper_path = resolved_target / harness_wrapper_path
                 wrapper_path.write_text(wrapper_text, encoding="utf-8", newline="\n")
-                harness_wrapper_path = HARNESS_WRAPPER_FILENAME
                 shim_authority = legacy_shim_authority(
                     harness_inventory_document, harness_baseline_document
                 )

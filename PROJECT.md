@@ -72,6 +72,11 @@ development (2026-09-10):
 
 ## Current work
 
+DOTNET-001 extends Goals 1 and 4 with native retained .NET adoption, portable
+build/test delegation and visible onboarding blockers. Debian Linux qualification
+passes the full Python gate and real .NET SDK adoption/receipt journey; evidence
+and platform limits are recorded in [the queue](docs/roadmap/active-work.md).
+
 WINDOWS-INSTALL-001 and CI-FIXTURE-001 complete Goals 1 and 4's native Windows
 installation and core CLI qualification slice. All 20 full CI jobs pass on
 Windows, Linux and macOS at `e4f58b7`, including native installation and installed

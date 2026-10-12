@@ -133,6 +133,48 @@ The transition is explicit: `wrapped` → `retained` → `drafted` → `qualifie
 Original source remains release authority until regenerative qualification is current;
 onboard never treats a wrapped repository as specification-authoritative.
 
+### Adopt a .NET repository
+
+Native adoption recognizes C# (`.csproj`), F# (`.fsproj`), Visual Basic (`.vbproj`),
+traditional solutions (`.sln`) and XML solutions (`.slnx`), including files below
+subdirectories. Discovery skips generated `bin/` and `obj/` trees and symlinks.
+`global.json` is reported as SDK configuration; it alone is not a build driver.
+
+One solution is preferred over individual projects. With no solution, exactly one
+project is selected. Multiple solutions (including side-by-side `.sln` and `.slnx`)
+or several projects without a solution remain blocked: inspection never picks a
+peer arbitrarily. Narrow the adoption directory to the intended entrypoint; for
+several projects without a solution, add a solution containing the intended projects.
+Explicit multi-root ownership remains a separate
+[adoption workflow](../architecture/monorepo-adoption.md).
+Existing supported build drivers retain precedence in mixed repositories.
+
+Commands run from the selected entrypoint's directory so SDK selection honors a
+nearby `global.json`. The retained build stage runs `dotnet build ./ENTRYPOINT`,
+which implicitly performs `dotnet restore`. A test stage runs
+`dotnet test ./ENTRYPOINT` only when the selected
+project, or a project explicitly listed in the selected solution, declares
+`Microsoft.NET.Test.Sdk` or an unconditional `IsTestProject` of `true`. Imports and
+MSBuild conditions are not evaluated during inspection. No run or package stage
+is inferred. Planning reads manifests without invoking the SDK or repository code.
+
+Install the .NET SDK required by the project and `global.json` before applying;
+`.slnx` also requires an SDK version that supports that format. Native .NET-only
+adoption emits `litai.harness.py`, using Literate AI's existing Python runtime and
+structured `dotnet` arguments, so it needs no Make, Bash or PowerShell wrapper.
+Build-only projects can be wrapped, but a retained test receipt still requires a
+positive, all-passing test count. VSTest summaries are counted across test
+assemblies; unrecognized runner output cannot earn a passing receipt.
+
+Use the same plan/apply/status commands above, without `--allow-unready`. Human
+plans list blocker identities; JSON retains the existing blocker codes and includes
+manifest findings, including entrypoint ambiguity. SDK commands are portable across
+Windows, Linux and macOS; individual target frameworks, Windows desktop projects,
+native dependencies and test runners may still limit where the project can build.
+Execution failures retain the ordinary diagnostics and evidence gates. Readmission preserves the wrapper kind; changing between native and Make wrappers
+requires a new reviewed adoption. This supports retained .NET source adoption;
+it does not add a .NET code-generation Flavor.
+
 ### Plan a Git-submodule orchestration project
 
 To preserve independently owned child repositories in place, use the explicit

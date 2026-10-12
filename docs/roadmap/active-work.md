@@ -26227,3 +26227,36 @@ ZIP provider CI follow-up: review the seven changed lifecycle-driver inputs (ZIP
 - **Next action:** Push the integration commit, verify its required CI, and land
   through the authorized writer using merge semantics. Integration CI remains
   pending until evidence is observed.
+
+### [x] DOTNET-001 — Adopt native .NET repositories without shell build wrappers
+
+- **Priority:** P1
+- **Owner:** framework core harness inventory and onboarding
+- **Direction:** Recognize .NET projects and solutions, retain native execution and receipts, and expose onboarding blockers.
+- **Conclusion:** Extend retained adoption under Goals 1 and 4 with deterministic read-only discovery, conservative entrypoint selection, native argv execution and portable wrapper parity. No new generation language Flavor is needed for retained source.
+- **Depends on:** none
+- **Implementation:**
+  - [x] Implement manifest discovery, native stages and portable retained parity without changing existing driver precedence.
+  - [x] Expose blocker identities and document SDK, ambiguity and platform constraints.
+- **Evidence:**
+  - [x] Run focused existing adoption and harness regressions plus one SDK-backed adoption and receipt journey.
+  - [x] Run make python-check and repository review, formatting and lint gates.
+- **Results:** The five focused adoption, operator, harness, receipt and readmission
+  modules pass all 27 tests on Debian Linux/Python 3.11, including real SDK 8.0.425
+  native adoption, wrapper parity, receipt update and advancement to retained.
+  Manifest-only coverage includes C#, F#, Visual Basic, both solution formats,
+  ambiguity, generated outputs, precedence and conservative test evidence.
+  A separate real SDK library adoption passes build-only parity without inventing
+  a test stage. The full `make python-check` gate passes on Python 3.11.15:
+  908 tests run, 46 skipped for unavailable optional toolchains, platform runtimes
+  and opt-in live provider fixtures. The .NET SDK journey executes and passes.
+  Lint, format-check, documentation-check, driver-review, runner-review,
+  documentation-review, OpenSpec and repository-layout checks pass. Documentation checking isolates an incompatible user npm allow-scripts
+  setting with `npm_config_userconfig=/dev/null`; no user configuration is changed.
+  `litai verify` passes authority; its configured sample-host receipt is stale and
+  full live sample qualification is outside this feature's evidence claim.
+  The end-of-cycle peer survey found no open reviews or collectable work.
+- **Next action:** Implementation and local qualification complete. Publish
+  `feat/native-dotnet` to the operator's fork without opening a PR. Native
+  Windows/macOS execution remains unverified; imported or conditional MSBuild test
+  configuration is not evaluated, and unfamiliar runner summaries fail closed.

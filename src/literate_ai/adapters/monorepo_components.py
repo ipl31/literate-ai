@@ -24,6 +24,7 @@ from literate_ai.adapters.harness_inventory import (
     HARNESS_INVENTORY_SCHEMA,
     classify_ci,
     execute_retained_harness,
+    harness_wrapper_filename,
     legacy_shim_authority,
     validate_harness_command_timeout,
 )
@@ -197,7 +198,7 @@ def _component_projection(component: dict[str, Any]) -> bytes:
     )
     header = header.replace(
         "entrypoints:\n  - name: run\n    kind: portable-application\n"
-        "    path: litai.harness.mk",
+        f"    path: {harness_wrapper_filename(inventory)}",
         "entrypoints: []",
     )
     body = (

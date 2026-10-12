@@ -15,7 +15,9 @@ from literate_ai.adapters.monorepo_adoption import (
     build_root_candidates,
     plan_monorepo_adoption,
 )
+from literate_ai.adapters.project_initialization import plan_convert
 from literate_ai.cli import main
+from tests.support.fixtures_test_operator_adoption import TtyStringIO
 
 
 class MonorepoAdoptionTests(unittest.TestCase):
@@ -220,6 +222,170 @@ class MonorepoAdoptionTests(unittest.TestCase):
             namespace = mutator.call_args.args[0]
             self.assertEqual(namespace.root_plan, str(self.selection_file))
             self.assertTrue(namespace.run_baseline)
+
+
+class DotnetAdoptionTests(unittest.TestCase):
+    def test_native_manifests_plan_read_only_with_existing_driver_precedence(self):
+        with tempfile.TemporaryDirectory(prefix="litai dotnet ") as directory:
+            for suffix in ("csproj", "fsproj", "vbproj"):
+                with self.subTest(suffix=suffix):
+                    root = Path(directory) / suffix
+                    project = root / "src" / f"Library Space.{suffix}"
+                    project.parent.mkdir(parents=True)
+                    project.write_text('<Project Sdk="Microsoft.NET.Sdk"/>')
+                    for generated in ("bin", "obj"):
+                        output = project.parent / generated
+                        output.mkdir()
+                        (output / "Generated.csproj").write_text("<Project/>")
+                    before = {
+                        p.relative_to(root).as_posix(): p.read_bytes()
+                        for p in root.rglob("*")
+                        if p.is_file()
+                    }
+                    plan = plan_convert(root)
+                    self.assertEqual(plan["readiness"], "ready")
+                    self.assertEqual(plan, plan_convert(root))
+                    stages = plan["proposed_wrapper_stages"]
+                    self.assertEqual([stage["id"] for stage in stages], ["build"])
+                    self.assertEqual(
+                        stages[0]["command"],
+                        f"dotnet build './Library Space.{suffix}'",
+                    )
+                    self.assertEqual(
+                        stages[0]["evidence"], f"src/Library Space.{suffix}"
+                    )
+                    self.assertEqual(stages[0]["cwd"], "src")
+                    self.assertEqual(
+                        before,
+                        {
+                            p.relative_to(root).as_posix(): p.read_bytes()
+                            for p in root.rglob("*")
+                            if p.is_file()
+                        },
+                    )
+                    if suffix == "csproj":
+                        for declaration, expected in (
+                            (
+                                "<PropertyGroup><IsTestProject>true</IsTestProject></PropertyGroup>",
+                                ["build", "test"],
+                            ),
+                            (
+                                "<PropertyGroup><IsTestProject>false</IsTestProject></PropertyGroup>",
+                                ["build"],
+                            ),
+                            (
+                                '<PropertyGroup Condition="false">'
+                                "<IsTestProject>true</IsTestProject></PropertyGroup>",
+                                ["build"],
+                            ),
+                            ("<!-- <IsTestProject>true</IsTestProject> -->", ["build"]),
+                        ):
+                            with self.subTest(declaration=declaration):
+                                project.write_text(f"<Project>{declaration}</Project>")
+                                self.assertEqual(
+                                    [
+                                        stage["id"]
+                                        for stage in plan_convert(root)[
+                                            "proposed_wrapper_stages"
+                                        ]
+                                    ],
+                                    expected,
+                                )
+                    (root / "Makefile").write_text("all:\n\t@echo built\n")
+                    self.assertEqual(
+                        plan_convert(root)["proposed_wrapper_stages"][0]["command"],
+                        "make -f Makefile",
+                    )
+                    self.assertEqual(
+                        len(plan_convert(root)["proposed_wrapper_stages"]), 1
+                    )
+
+    def test_solution_members_prove_tests_and_ambiguity_never_selects_a_peer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for suffix in ("sln", "slnx"):
+                with self.subTest(suffix=suffix):
+                    root = Path(directory) / suffix
+                    root.mkdir()
+                    (root / "App.csproj").write_text(
+                        '<Project Sdk="Microsoft.NET.Sdk"/>'
+                    )
+                    tests = root / "tests" / "Tests.csproj"
+                    tests.parent.mkdir()
+                    tests.write_text(
+                        "<Project><ItemGroup>"
+                        '<PackageReference Include="Microsoft.NET.Test.Sdk"/>'
+                        "</ItemGroup></Project>"
+                    )
+                    solution = root / f"App.{suffix}"
+                    solution.write_text(
+                        '<Solution><Project Path="App.csproj"/>'
+                        '<Project Path="tests/Tests.csproj"/></Solution>'
+                        if suffix == "slnx"
+                        else (
+                            'Project("{ID}") = "App", "App.csproj", "{APP}"\n'
+                            "EndProject\n"
+                            'Project("{ID}") = "Tests", '
+                            '"tests\\Tests.csproj", "{TEST}"\n'
+                            "EndProject\n"
+                        )
+                    )
+                    (root / "global.json").write_text('{"sdk":{"version":"8.0.100"}}')
+                    plan = plan_convert(root)
+                    self.assertEqual(plan["readiness"], "ready")
+                    self.assertEqual(
+                        [stage["command"] for stage in plan["proposed_wrapper_stages"]],
+                        [f"dotnet build ./App.{suffix}", f"dotnet test ./App.{suffix}"],
+                    )
+                    self.assertIn(
+                        "toolchain.dotnet-sdk",
+                        [finding["detector_id"] for finding in plan["findings"]],
+                    )
+                    # A test project outside the solution cannot authorize a test stage.
+                    solution.write_text(
+                        '<Solution><Project Path="App.csproj"/></Solution>'
+                        if suffix == "slnx"
+                        else (
+                            'Project("{ID}") = "App", "App.csproj", "{APP}"\n'
+                            "EndProject\n"
+                        )
+                    )
+                    self.assertEqual(
+                        [
+                            stage["id"]
+                            for stage in plan_convert(root)["proposed_wrapper_stages"]
+                        ],
+                        ["build"],
+                    )
+                    (root / "Other.sln").write_text("")
+                    ambiguous = plan_convert(root)
+                    self.assertEqual(ambiguous["readiness"], "blocked-no-driver")
+                    self.assertEqual(ambiguous["proposed_wrapper_stages"], [])
+                    self.assertEqual(ambiguous, plan_convert(root))
+                    self.assertIn(
+                        "build-system.dotnet-ambiguous",
+                        [finding["detector_id"] for finding in ambiguous["findings"]],
+                    )
+                    output, errors = TtyStringIO(), io.StringIO()
+                    self.assertEqual(
+                        main(
+                            ["onboard", "adopt", str(root)],
+                            stdout=output,
+                            stderr=errors,
+                        ),
+                        0,
+                        errors.getvalue(),
+                    )
+                    self.assertIn("  - blocked-no-driver", output.getvalue())
+                    solution.unlink()
+                    (root / "Other.sln").unlink()
+                    self.assertEqual(
+                        plan_convert(root)["readiness"], "blocked-no-driver"
+                    )
+                    tests.unlink()
+                    (root / "App.csproj").unlink()
+                    self.assertEqual(
+                        plan_convert(root)["readiness"], "blocked-no-driver"
+                    )
 
 
 if __name__ == "__main__":

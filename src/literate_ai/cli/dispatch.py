@@ -1146,7 +1146,7 @@ def _parser() -> JsonArgumentParser:
         help=(
             "litai init --convert adopts an existing repository into literate-ai by "
             "quarantining pre-existing files into _legacy/ and wrapping recorded "
-            "operations behind litai.harness.mk. Auto-detects language and "
+            "operations behind a retained harness wrapper. Auto-detects language and "
             "build-system Flavors from the repo when no --flavor is given."
         ),
     )
