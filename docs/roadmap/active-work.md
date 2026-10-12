@@ -26260,3 +26260,38 @@ ZIP provider CI follow-up: review the seven changed lifecycle-driver inputs (ZIP
   `feat/native-dotnet` to the operator's fork without opening a PR. Native
   Windows/macOS execution remains unverified; imported or conditional MSBuild test
   configuration is not evaluated, and unfamiliar runner summaries fail closed.
+
+### [x] DOTNET-002 — Repair skipped-test evidence and remote native wrapper runtime
+
+- **Priority:** P1
+- **Owner:** framework retained harness evidence and execution
+- **Direction:** Address Astra review of native .NET adoption under Goals 1 and 4.
+- **Conclusion:** Count every VSTest outcome and bind framework-owned wrapper execution to the receiver interpreter without changing recorded inventory identities or existing command behavior.
+- **Depends on:** none
+- **Implementation:**
+  - [x] Recognize entirely skipped assemblies and reject mixed passing/skipped receipts.
+  - [x] Execute native wrapper parity with the receiver Python runtime, independent of PATH aliases.
+- **Evidence:**
+  - [x] Run real SDK mixed-assembly receipt rejection and remote wrapper execution without a python PATH alias.
+  - [x] Pass focused regressions, make python-check and required review gates.
+- **Results:** All 31 tests in the six focused adoption, operator, harness, receipt,
+  readmission and receiver modules pass on Debian Linux/Python 3.11.15 with
+  .NET SDK 8.0.425. A real two-assembly solution reports total=2, passed=1,
+  skipped=1 and is rejected with `retained_receipt.tests_not_all_passing`.
+  Real receiver archive validation, source materialization, direct stages and
+  wrapper parity pass with Git and dotnet available but neither Python alias
+  on PATH. Only SSH transport is replaced by a loopback test boundary, which
+  preserves production result validation and matches the host OS.
+  Lint, formatting, documentation rendering, OpenSpec and layout checks pass.
+  Start-of-cycle peer survey reports `project.peer_work_tracker_failed`; no
+  peer work is merged or collected. End-of-cycle survey subsequently passes with
+  no open reviews or collectable work. Astra confirms both production findings
+  are resolved; its two fixture portability/fidelity findings are also corrected.
+  The full `make python-check` gate passes: 908 tests run, 46 skipped for
+  unavailable optional tools, platform-specific runtimes and opt-in live providers.
+  The extended SDK journey executes and passes. Driver and documentation reviews
+  remain current. `litai verify` passes authority; the separate configured live
+  sample-host receipt remains stale and is not replaced by this feature proof.
+- **Next action:** Repair and local qualification complete; publish the fix on
+  `feat/native-dotnet` in the operator's fork without opening a PR. Native
+  Windows/macOS and actual network SSH execution remain unverified locally.

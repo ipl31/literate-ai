@@ -164,7 +164,10 @@ adoption emits `litai.harness.py`, using Literate AI's existing Python runtime a
 structured `dotnet` arguments, so it needs no Make, Bash or PowerShell wrapper.
 Build-only projects can be wrapped, but a retained test receipt still requires a
 positive, all-passing test count. VSTest summaries are counted across test
-assemblies; unrecognized runner output cannot earn a passing receipt.
+assemblies, including entirely skipped assemblies; any skipped tests prevent a
+passing receipt. Unrecognized runner output cannot earn a passing receipt.
+During remote readmission, native wrapper parity uses the Python interpreter
+running the receiver, without requiring a `python` alias on the worker's PATH.
 
 Use the same plan/apply/status commands above, without `--allow-unready`. Human
 plans list blocker identities; JSON retains the existing blocker codes and includes

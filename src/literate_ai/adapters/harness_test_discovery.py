@@ -33,7 +33,7 @@ _CTEST_ALL_PASSED = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 _DOTNET_OUTCOME = re.compile(
-    r"^\s*(?:Passed!|Failed!)\s*-\s*Failed:\s*(\d+),\s*"
+    r"^\s*(?:Passed!|Failed!|Skipped!)\s*-\s*Failed:\s*(\d+),\s*"
     r"Passed:\s*(\d+),\s*Skipped:\s*(\d+),\s*Total:\s*(\d+),",
     re.MULTILINE,
 )

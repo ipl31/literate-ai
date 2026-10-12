@@ -21,7 +21,10 @@ from literate_ai.adapters.component_markdown import parse_component_markdown
 from literate_ai.adapters.harness_inventory import (
     HARNESS_INVENTORY_SCHEMA,
     HARNESS_WRAPPER_FILENAME,
+    HarnessBaselineError,
     _run_harness_command,
+    execute_retained_harness,
+    inspect_harness,
     render_harness_wrapper,
 )
 from literate_ai.adapters.monorepo_adoption import (
@@ -40,12 +43,24 @@ from literate_ai.adapters.project_validation import (
     ProjectValidationError,
     validate_project,
 )
+from literate_ai.adapters.retained_harness_readmission import (
+    apply_retained_harness_readmission,
+    plan_retained_harness_readmission,
+)
 from literate_ai.adapters.retained_scope_refresh import (
     apply_retained_scope_refresh,
     plan_retained_scope_refresh,
 )
 from literate_ai.cli import main
-from literate_ai.contracts import ProjectInitializationOrigin, RepositoryParentSelection
+from literate_ai.contracts import (
+    ProjectInitializationOrigin,
+    RepositoryParentSelection,
+    canonical_identity,
+)
+from tests.support.fixtures_test_retained_harness_remote import (
+    LoopbackRetainedExecutor,
+    _worker,
+)
 from tests.support.root_parent_adapter import (
     RootParentProjectInitializationAdapter as FilesystemProjectInitializationAdapter,
 )
@@ -232,6 +247,75 @@ class DotnetHarnessJourneyTests(unittest.TestCase):
             self.assertEqual(
                 status["project"]["conversion_authority"]["stage"], "retained"
             )
+
+            # Replace only SSH transport: archive validation, source materialization,
+            # direct execution and generated-wrapper parity use the real receiver.
+            if sys.platform in {"linux", "darwin"}:
+                worker = _worker(
+                    os_family="macos" if sys.platform == "darwin" else "linux"
+                )
+                catalog = canonical_identity({"catalog": "dotnet-fixture"})
+                executor = LoopbackRetainedExecutor()
+                remote_plan = plan_retained_harness_readmission(
+                    root, execution_worker=worker, worker_catalog_identity=catalog
+                )
+                tools = Path(directory) / "worker-tools"
+                tools.mkdir()
+                for name in ("git", "dotnet"):
+                    (tools / name).symlink_to(Path(shutil.which(name)).resolve())
+                with patch.dict(os.environ, {"PATH": str(tools)}):
+                    self.assertIsNone(shutil.which("python"))
+                    self.assertIsNone(shutil.which("python3"))
+                    readmitted = apply_retained_harness_readmission(
+                        root,
+                        expected_plan_identity=remote_plan["plan_identity"],
+                        acknowledge=True,
+                        timeout_seconds=1800,
+                        execution_worker=worker,
+                        worker_catalog_identity=catalog,
+                        remote_executor=executor,
+                    )
+                self.assertTrue(readmitted["applied"])
+                self.assertEqual(len(executor.results), 2)
+                self.assertEqual(
+                    {phase["command"] for phase in executor.results[1].phases},
+                    {
+                        "./litai.harness.py build legacy",
+                        "./litai.harness.py test legacy",
+                    },
+                )
+
+            # An entirely skipped assembly must not disappear when another passes.
+            lift = json.loads((root / ".literate/legacy-lift-shift.json").read_text())
+            source = root / lift["implementation_directory"]
+            passing = source / "src/Tests Space.csproj"
+            skipped = source / "skipped/Skipped.csproj"
+            skipped.parent.mkdir()
+            skipped.write_text(passing.read_text())
+            (skipped.parent / "Tests.cs").write_text(
+                'public class Tests { [Xunit.Fact(Skip="fixture")] '
+                "public void Skipped() {} }"
+            )
+            subprocess.run(
+                ["dotnet", "new", "sln", "--name", "Suite", "--output", str(source)],
+                check=True,
+                capture_output=True,
+            )
+            solution = next(path for path in source.glob("Suite.sln*"))
+            subprocess.run(
+                ["dotnet", "sln", str(solution), "add", str(passing), str(skipped)],
+                check=True,
+                capture_output=True,
+            )
+            with self.assertRaises(HarnessBaselineError) as rejected:
+                execute_retained_harness(inspect_harness(source), legacy_root=source)
+            self.assertEqual(
+                rejected.exception.code, "retained_receipt.tests_not_all_passing"
+            )
+            collection = rejected.exception.report["phases"][-1]["test_collection"]
+            self.assertEqual(collection["total"], 2)
+            self.assertEqual(collection["passed"], 1)
+            self.assertEqual(collection["skipped"], 1)
 
 
 class ConvertHarnessSliceTests(unittest.TestCase):

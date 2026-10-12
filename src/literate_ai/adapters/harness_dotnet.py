@@ -34,6 +34,16 @@ def dotnet_argv(command: str) -> list[str] | None:
     return None
 
 
+def dotnet_wrapper_argv(command: str) -> list[str] | None:
+    """Decode the portable wrapper invocation, bound to Python by its executor."""
+
+    for phase in ("build", "test"):
+        argv = ["./litai.harness.py", phase, "legacy"]
+        if command == shlex.join(argv):
+            return argv
+    return None
+
+
 def _xml(path: Path) -> ElementTree.Element | None:
     try:
         content = path.read_bytes()

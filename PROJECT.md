@@ -76,6 +76,9 @@ DOTNET-001 extends Goals 1 and 4 with native retained .NET adoption, portable
 build/test delegation and visible onboarding blockers. Debian Linux qualification
 passes the full Python gate and real .NET SDK adoption/receipt journey; evidence
 and platform limits are recorded in [the queue](docs/roadmap/active-work.md).
+DOTNET-002 addresses review findings in skipped-assembly receipt counts and remote
+wrapper interpreter selection. Both fixes pass the full Python gate and real SDK
+regressions, including receiver execution without Python PATH aliases.
 
 WINDOWS-INSTALL-001 and CI-FIXTURE-001 complete Goals 1 and 4's native Windows
 installation and core CLI qualification slice. All 20 full CI jobs pass on

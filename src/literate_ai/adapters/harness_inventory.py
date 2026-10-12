@@ -31,6 +31,7 @@ from literate_ai.adapters._processes import (
 )
 from literate_ai.adapters.harness_dotnet import (
     dotnet_argv,
+    dotnet_wrapper_argv,
     inspect_dotnet,
     render_dotnet_wrapper,
 )
@@ -1291,7 +1292,8 @@ def _run_harness_command(
     # root instead of the outer checkout (issue #315).
     environment["CI_PROJECT_DIR"] = str(observed_root)
     environment["OMNI_REPO_ROOT"] = str(observed_root)
-    argv = entry.get("argv") or dotnet_argv(command)
+    wrapper_argv = dotnet_wrapper_argv(command)
+    argv = entry.get("argv") or dotnet_argv(command) or wrapper_argv
     if argv is not None and (
         not isinstance(argv, list)
         or not argv
@@ -1303,6 +1305,10 @@ def _run_harness_command(
             "native argv does not match recorded command",
             {"schema": HARNESS_BASELINE_SCHEMA, "state": "failed", "phases": []},
         )
+    if wrapper_argv is not None:
+        # The portable inventory never names a coordinator-local interpreter.
+        # On an SSH receiver this is the interpreter running the qualified runtime.
+        argv = [sys.executable, *wrapper_argv]
     started = datetime.now(UTC)
     with (
         tempfile.TemporaryFile() as stdout_file,

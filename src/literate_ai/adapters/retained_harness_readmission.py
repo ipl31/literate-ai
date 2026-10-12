@@ -486,7 +486,7 @@ def _parity_inventory(inventory: dict[str, Any], source_root: Path) -> dict[str,
             {
                 **stage,
                 "command": (
-                    f"python {wrapper_name} {stage['id']} legacy"
+                    f"./{wrapper_name} {stage['id']} legacy"
                     if wrapper_name.endswith(".py")
                     else f"make -f {wrapper_name} {stage['id']} LITAI_LEGACY=legacy"
                 ),

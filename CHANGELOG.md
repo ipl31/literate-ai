@@ -5,7 +5,8 @@
 - Adoption: detect native .NET projects and solutions, retain evidence-backed
   build/test commands through a portable Python wrapper, and show individual
   onboarding blockers. Ambiguous entrypoints remain blocked; existing drivers
-  keep precedence.
+  keep precedence. Receipts reject entirely skipped test assemblies, and remote
+  native wrapper parity uses the receiver's Python runtime without a PATH alias.
 
 - Windows installation: report inaccessible declared native-tool search directories
   as actionable host-install errors instead of uncaught tracebacks. Document the
